@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Walk-In Verifier</title>
+    <link rel="stylesheet" href="walk-in-calculator.css">
+</head>
+<body>
+
+<!-- Navigation Bar -->
+<div class="top-bar">
+    <div class="app-title" onclick="switchSection('calculator')" title="Return to Home">Walk-In Verifier</div>
+</div>
+
+<!-- Warning Modal -->
+<div id="warningModal" class="modal-overlay">
+    <div class="modal-content">
+        <h3>Important Check</h3>
+        <p>Ensure all shipments and the most recent inventory count were posted <strong>before</strong> uploading the inventory order CSV.</p>
+        <div class="checkbox-wrapper">
+            <input type="checkbox" id="dontShowAgain">
+            <label for="dontShowAgain">Do not check again</label>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeWarningModal()">Cancel</button>
+            <button class="btn-primary" style="width: auto;" onclick="confirmVerification()">Proceed</button>
+        </div>
+    </div>
+</div>
+
+<!-- Apply 15k Usage Modal -->
+<div id="apply15kModal" class="modal-overlay">
+    <div class="modal-content">
+        <h3>Apply 15k Usage</h3>
+        <p>This will overwrite <strong>Daily Usage</strong> for all items in the <strong>Item Limits</strong> section with the calculated 15k daily usage values.</p>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeApply15kModal()">Cancel</button>
+            <button class="btn-primary" style="width: auto;" onclick="confirmApply15k()">Continue</button>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- CALCULATOR TAB -->
+    <div id="calculator" class="tab-content active">
+        <div class="card">
+            <!-- Header with Cog -->
+            <div class="section-header-wrapper">
+                <h3>Inventory Calculator</h3>
+                <button class="icon-btn" onclick="switchSection('settings')" title="Open Settings">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                        <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="control-panel">
+                <!-- 1. CSV Upload -->
+                <div class="panel-section">
+                    <div class="panel-label">
+                        1. Upload CSV
+                        <!-- Base Code for Help Tooltip -->
+                        <div class="help-tip">
+                            <span class="help-icon">?</span>
+                            <span class="help-content">Upload your order guide CSV.</span>
+                        </div>
+                    </div>
+                    <div class="file-drop-area">
+                        <span class="file-msg" id="fileNameDisplay">Select CSV File</span>
+                        <input type="file" id="csvFile" accept=".csv" onchange="updateFileName(this)">
+                    </div>
+                </div>
+
+                <!-- 2. Current Date (Locked) -->
+                <div class="panel-section">
+                    <div class="panel-label">2. Today's Date</div>
+                        <div class="form-control-styled" id="currentDateDisplay" onclick="openDatePicker(event)" role="button" aria-label="Change current date">
+                            <!-- JS will populate -->
+                        </div>
+                        <input type="date" id="currentDatePicker" style="display:none" onchange="handleDateChange(this)">
+                </div>
+
+                <!-- 3. Shipment Date (Chips) -->
+                <div class="panel-section">
+                    <div class="panel-label">3. Select Shipment Date</div>
+                    <div class="shipment-options" id="shipmentContainer">
+                        <!-- JS will populate chips -->
+                    </div>
+                    <input type="hidden" id="selectedShipmentDateValue">
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="initiateVerification()">Verify Order</button>
+            <div id="error-msg"></div>
+        </div>
+
+        <div class="card" id="resultsCard" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: nowrap; gap: 20px;">
+                <h3 style="margin:0; white-space: nowrap;">Analysis Results</h3>
+                <span id="summaryText" style="margin:0; font-size: 0.9rem; font-weight: 700; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
+            </div>
+            
+            <div class="table-responsive">
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Item Name</th>
+                            <th>On Hand</th>
+                            <th>In Transit</th>
+                            <th>On Order</th>
+                            <th>Est. Inventory</th>
+                            <th>Variance</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="settings" class="tab-content">
+        <!-- Top Return Button -->
+        <div style="margin-bottom: 15px;">
+            <button class="btn-text-back" onclick="switchSection('calculator')">
+                <svg viewBox="0 0 24 24">
+                    <path d="M20,11H7.83l5.59-5.59L12,4l-8,8l8,8l1.41-1.41L7.83,13H20V11z"/>
+                </svg>
+                Return to Home
+            </button>
+        </div>
+
+        <!-- Sub Navigation -->
+        <div class="settings-subnav">
+            <button id="btn-set-limits" class="subnav-btn active" onclick="switchSettingsTab('set-limits')">Item Limits</button>
+            <button id="btn-set-usage" class="subnav-btn" onclick="switchSettingsTab('set-usage')">Usage Rates</button>
+        </div>
+
+        <!-- ITEM LIMITS SUB-TAB -->
+        <div id="set-limits" class="settings-subcontent active">
+            <div class="card">
+                <h3>Item Limits</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <p style="margin: 0; color: #555; font-size: 0.95rem;">
+                        Adjust Max Inventory targets. Daily Usage is updated via the CSV calculator.
+                    </p>
+                </div>
+                
+                <div id="settingsList" class="settings-grid">
+                    <!-- Javascript will populate this -->
+                </div>
+            </div>
+
+            <!-- Action Bar (Moved specifically to Item Limits) -->
+            <div class="card" style="border:none; box-shadow:none; background:transparent;">
+                <div class="action-bar">
+                    <button class="btn-success" style="width: auto;" onclick="saveSettings()">Save Configuration</button>
+                    <button class="btn-primary" style="width: auto; background-color: #888; margin-left: 10px;" onclick="resetDefaults()">Reset Defaults</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- USAGE RATES SUB-TAB -->
+        <div id="set-usage" class="settings-subcontent">
+            <div class="card">
+                <h3>Usage Rates (Estimator)</h3>
+                <p style="margin-bottom: 20px; color: #555; font-size: 0.95rem;">
+                    Upload usage CSV to calculate rates, or manually adjust the Min/Max estimates below. 
+                    <br><strong>Note:</strong> Editing Min/Max will reverse-calculate the Usage Rate.
+                </p>
+                
+                <!-- CSV Upload for Rates -->
+                <div class="control-panel" style="grid-template-columns: 1fr; margin-bottom: 20px;">
+                     <div class="panel-section">
+                        <div class="panel-label">
+                            Update Rates via CSV
+                            <div class="help-tip">
+                                <span class="help-icon">?</span>
+                                <span class="help-content">Upload the "Usage Report" CSV. The tool looks for Item Name in Column 3 and Usage/1000 in Column 6.</span>
+                            </div>
+                        </div>
+                        <div class="file-drop-area">
+                            <span class="file-msg" id="ratesFileName">Select Rates CSV</span>
+                            <input type="file" id="ratesCsvFile" accept=".csv" onchange="processRatesCSV(this)">
+                        </div>
+                     </div>
+                </div>
+        
+                <!-- Usage List -->
+                <div class="table-responsive">
+                    <table id="ratesTable">
+                        <thead>
+                            <tr>
+                                <th>Item Name</th>
+                                <th>Usage / $1k<br><small>(Read Only)</small></th>
+                                <th>Min Usage (10k)<br><small>(Editable)</small></th>
+                                <th>Max Usage (17k)<br><small>(Editable)</small></th>
+                            </tr>
+                        </thead>
+                        <tbody id="ratesTableBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="margin-top: 15px; text-align: right;">
+                     <button class="btn-primary" style="width: auto; background-color: var(--chili-red);" onclick="applyUsageToSettings()">
+                        Apply 15k Usage to Daily Limits
+                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Return Button -->
+        <div class="bottom-return-container">
+            <button class="btn-text-back" onclick="switchSection('calculator')">
+                <svg viewBox="0 0 24 24">
+                    <path d="M20,11H7.83l5.59-5.59L12,4l-8,8l8,8l1.41-1.41L7.83,13H20V11z"/>
+                </svg>
+                Return to Home
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="walk-in-calculator.js"></script>
+
+<!-- Toast notification element -->
+<div id="saveToast" class="toast" role="status" aria-live="polite" style="display:block;">&nbsp;</div>
+
+</body>
+</html>
