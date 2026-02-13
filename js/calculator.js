@@ -36,18 +36,59 @@ function processFile() {
     }
 
     errorMsg.style.display = 'none';
+    const file = fileInput.files[0];
+
+    // Upload raw CSV to Firebase Storage (non-blocking)
+    if (window.uploadCSVToFirebase) {
+        window.uploadCSVToFirebase(file, 'inventory-order')
+            .then(function (url) {
+                console.log('[Firebase] Inventory CSV uploaded:', url);
+                showToast('CSV backed up to cloud.');
+            })
+            .catch(function (err) {
+                console.warn('[Firebase] Storage upload failed:', err);
+            });
+    }
 
     const reader = new FileReader();
     reader.onload = function (e) {
         try {
             const data = parseCSV(e.target.result);
             calculateAndRender(data);
+
+            // Save parsed results to Firestore (non-blocking)
+            if (window.saveToFirestore && data.length > 0) {
+                const shipmentVal = document.getElementById('selectedShipmentDateValue').value;
+                const payload = {
+                    fileName: file.name,
+                    currentDate: AppState.globalCurrentDate.toISOString(),
+                    shipmentDate: shipmentVal,
+                    itemCount: data.length,
+                    items: data.map(function (row) {
+                        var matchedKey = findMatchingItemKey(row.name, AppState.maxInventory);
+                        return {
+                            name: row.name,
+                            matchedKey: matchedKey || null,
+                            onHand: row.onHand,
+                            inTransit: row.inTransit,
+                            amountToOrder: row.amountToOrder
+                        };
+                    })
+                };
+                window.saveToFirestore('inventory-results', payload)
+                    .then(function (id) {
+                        console.log('[Firebase] Inventory results saved, doc:', id);
+                    })
+                    .catch(function (err) {
+                        console.warn('[Firebase] Firestore save failed:', err);
+                    });
+            }
         } catch (err) {
             errorMsg.innerText = "Error processing CSV: " + err.message;
             errorMsg.style.display = 'block';
         }
     };
-    reader.readAsText(fileInput.files[0]);
+    reader.readAsText(file);
 }
 
 // --- CSV PARSING ---
@@ -97,6 +138,31 @@ function parseCSVLine(line) {
     return cols;
 }
 
+// --- DYNAMIC USAGE CALCULATION ---
+
+/**
+ * Calculate total projected usage for an item over a date range.
+ * Iterates each day from startDate (inclusive) to endDate (exclusive),
+ * using that day's sales projection × the item's usage-per-thousand rate.
+ * Returns 0 if the item has no UPT rate (caller should use fallback).
+ */
+function calculateUsageForPeriod(itemKey, startDate, endDate) {
+    const upt = AppState.usagePerThousand[itemKey];
+    if (!upt) return 0;
+
+    let totalUsage = 0;
+    const day = new Date(startDate);
+
+    while (day < endDate) {
+        const dayName = day.toLocaleDateString('en-US', { weekday: 'long' });
+        const projectedSales = AppState.salesProjections[dayName] || 0;
+        totalUsage += (projectedSales / 1000) * upt;
+        day.setDate(day.getDate() + 1);
+    }
+
+    return totalUsage;
+}
+
 // --- CALCULATION & RENDERING ---
 
 function calculateAndRender(data) {
@@ -116,7 +182,7 @@ function calculateAndRender(data) {
     let overOrderCount = 0;
 
     const processedData = data
-        .map(row => processRow(row, daysUntilShipment))
+        .map(row => processRow(row, current, shipment, daysUntilShipment))
         .filter(item => item !== null);
 
     if (processedData.length === 0) {
@@ -163,9 +229,11 @@ function calculateAndRender(data) {
 
 /**
  * Process a single CSV row against inventory limits.
+ * Uses dynamic per-day usage (sales projections × UPT rates).
+ * Falls back to flat consumptionDict rate if item has no UPT data.
  * Returns null if the item should be skipped.
  */
-function processRow(row, daysUntilShipment) {
+function processRow(row, currentDate, shipmentDate, daysUntilShipment) {
     // Exclude specific double entry
     if (row.name.includes("Corn w/ Poblano Mix, 20lb")) return null;
 
@@ -173,9 +241,16 @@ function processRow(row, daysUntilShipment) {
     if (!matchedKey) return null;
 
     const maxInv = AppState.maxInventory[matchedKey];
-    const consumption = AppState.consumptionDict[matchedKey] || 1;
 
-    const usageUntilShipment = consumption * daysUntilShipment;
+    // Dynamic usage: sum each day's (projected sales / 1000) × UPT rate
+    let usageUntilShipment = calculateUsageForPeriod(matchedKey, currentDate, shipmentDate);
+
+    // Fallback: if no UPT rate exists, use flat daily consumption
+    if (usageUntilShipment === 0) {
+        const consumption = AppState.consumptionDict[matchedKey] || 1;
+        usageUntilShipment = consumption * daysUntilShipment;
+    }
+
     const totalAfterOrder = row.onHand + row.inTransit + row.amountToOrder;
     const estimatedInventory = totalAfterOrder - usageUntilShipment;
 

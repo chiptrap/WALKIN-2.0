@@ -87,6 +87,18 @@ function processRatesCSV(input) {
     display.style.color = 'var(--chili-dark)';
     display.style.fontWeight = '700';
 
+    // Upload raw CSV to Firebase Storage (non-blocking)
+    if (window.uploadCSVToFirebase) {
+        window.uploadCSVToFirebase(file, 'usage-rates')
+            .then(function (url) {
+                console.log('[Firebase] Usage CSV uploaded:', url);
+                showToast('Usage CSV backed up to cloud.');
+            })
+            .catch(function (err) {
+                console.warn('[Firebase] Storage upload failed:', err);
+            });
+    }
+
     const reader = new FileReader();
     reader.onload = function (e) {
         const lines = e.target.result.split(/\r\n|\n/);
@@ -119,6 +131,22 @@ function processRatesCSV(input) {
 
         renderUsageSettings();
         showToast(`Updated ${updatedCount} usage rates from CSV.`);
+
+        // Save parsed rates to Firestore (non-blocking)
+        if (window.saveToFirestore) {
+            const payload = {
+                fileName: file.name,
+                updatedCount: updatedCount,
+                rates: { ...AppState.usagePerThousand }
+            };
+            window.saveToFirestore('usage-rates', payload)
+                .then(function (id) {
+                    console.log('[Firebase] Usage rates saved, doc:', id);
+                })
+                .catch(function (err) {
+                    console.warn('[Firebase] Firestore save failed:', err);
+                });
+        }
     };
     reader.readAsText(file);
 }
